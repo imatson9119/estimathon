@@ -20,13 +20,44 @@ export const MAGS = [
 export const fmt = (n) =>
   n == null || Number.isNaN(n) ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 4 });
 
+const MAG_ABBREVIATIONS = {
+  thousand: "K",
+  million: "M",
+  billion: "B",
+  trillion: "T",
+  quadrillion: "Qa",
+  quintillion: "Qi",
+  sextillion: "Sx",
+  septillion: "Sp",
+  octillion: "O",
+  nonillion: "N",
+};
+
+const fmtSig = (n) =>
+  n.toLocaleString("en-US", { maximumSignificantDigits: 3 });
+
 export function fmtBig(n) {
   if (n == null || !Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
-  if (abs < 1e6) return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
-  let m = MAGS[0];
-  for (const x of MAGS) if (abs >= x.value) m = x;
-  return `${(n / m.value).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${m.word}`;
+  if (abs < 1e3) return fmtSig(n);
+
+  let magIndex = 0;
+  for (let i = 0; i < MAGS.length; i += 1) {
+    if (abs >= MAGS[i].value) magIndex = i;
+  }
+
+  // If significant-digit rounding would show 1000 of the current unit,
+  // promote to the next magnitude instead (e.g. 999,500 -> 1M).
+  const roundedAtMagnitude = (index) => Number((n / MAGS[index].value).toPrecision(3));
+  while (
+    magIndex < MAGS.length - 1 &&
+    Math.abs(roundedAtMagnitude(magIndex)) >= 1000
+  ) {
+    magIndex += 1;
+  }
+
+  const mag = MAGS[magIndex];
+  return `${fmtSig(n / mag.value)}${MAG_ABBREVIATIONS[mag.word] || mag.word}`;
 }
 
 // scale-aware proximity: absolute for small answers, orders of magnitude for big ones
