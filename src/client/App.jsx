@@ -9,6 +9,61 @@ const loadSession = () => { try { return JSON.parse(localStorage.getItem(SESSION
 const clearSession = () => { try { localStorage.removeItem(SESSION_KEY); } catch {} };
 const magIndex = (word) => Math.max(0, MAGS.findIndex((m) => m.word === word));
 
+const pct = (n) => `${Math.max(0, Math.min(100, n)).toFixed(2)}%`;
+
+function buildGuessScale(lr) {
+  if (lr.round === 1 || lr.answer == null || !Number.isFinite(Number(lr.answer))) return null;
+  const mode = scaleMode(lr.round, lr.answer);
+  const logMode = mode === "ratio";
+  const canPlot = (value) => Number.isFinite(Number(value)) && (!logMode || Number(value) > 0);
+  const toScale = (value) => logMode ? Math.log10(Number(value)) : Number(value);
+  const fromScale = (value) => logMode ? Math.pow(10, value) : value;
+  const players = lr.results
+    .filter((r) => r.guess != null && canPlot(r.guess))
+    .map((r) => ({ ...r, scaled: toScale(r.guess) }));
+  if (!players.length || !canPlot(lr.answer)) return null;
+
+  const answerScaled = toScale(lr.answer);
+  const scaledValues = [...players.map((p) => p.scaled), answerScaled];
+  const rawValues = [...players.map((p) => Number(p.guess)), Number(lr.answer)];
+  let min = Math.min(...scaledValues);
+  let max = Math.max(...scaledValues);
+  if (min === max) {
+    const pad = logMode ? 0.5 : Math.max(1, Math.abs(min) * 0.1);
+    min -= pad;
+    max += pad;
+  }
+  const buffer = (max - min) * 0.1;
+  min -= buffer;
+  max += buffer;
+  if (!logMode && rawValues.every((value) => value >= 0)) min = Math.max(0, min);
+  const position = (scaled) => ((scaled - min) / (max - min)) * 100;
+
+  const lanes = [];
+  const placedPlayers = players
+    .sort((a, b) => position(a.scaled) - position(b.scaled))
+    .map((player) => {
+      const pos = position(player.scaled);
+      let lane = lanes.findIndex((lastPos) => pos - lastPos >= 18);
+      if (lane === -1) {
+        lane = lanes.length;
+        lanes.push(pos);
+      } else {
+        lanes[lane] = pos;
+      }
+      return { ...player, pos, lane };
+    });
+
+  return {
+    answerPos: position(answerScaled),
+    minLabel: fmtBig(fromScale(min)),
+    maxLabel: fmtBig(fromScale(max)),
+    players: placedPlayers,
+    lanes: Math.max(1, lanes.length),
+    mode,
+  };
+}
+
 // ---------- WebSocket room hook ----------
 function useRoom() {
   const [room, setRoom] = useState(null);
@@ -275,6 +330,7 @@ export default function App() {
     const sorted = [...lr.results].sort(
       lr.round === 1 ? (a, b) => b.delta - a.delta : (a, b) => (a.dist ?? Infinity) - (b.dist ?? Infinity)
     );
+    const guessScale = buildGuessScale(lr);
     return (
       <div className="panel">
         <div className="reveal-answer">
@@ -286,6 +342,32 @@ export default function App() {
           <ModeBadge mode={scaleMode(lr.round, lr.answer)} />
           {lr.note && <span className="answer-note">{lr.note}</span>}
         </div>
+        {guessScale && (
+          <div className={`guess-scale ${guessScale.mode === "ratio" ? "log" : "linear"}`} style={{ "--lanes": guessScale.lanes }}>
+            <div className="scale-head">
+              <span>Guess scale</span>
+              <span>{guessScale.mode === "ratio" ? "Logarithmic" : "Linear"}</span>
+            </div>
+            <div className="scale-track" aria-label={`${guessScale.mode === "ratio" ? "Logarithmic" : "Linear"} scale of player guesses against the actual answer`}>
+              <div className="scale-line" />
+              <div className="actual-marker" style={{ left: pct(guessScale.answerPos) }}>
+                <span className="actual-dot" />
+                <span className="actual-label mono">Actual</span>
+              </div>
+              {guessScale.players.map((p) => (
+                <div className={`player-marker ${OUTCOME[p.outcome].cls} ${p.pos < 12 ? "edge-left" : p.pos > 88 ? "edge-right" : ""}`}
+                  key={p.id} style={{ left: pct(p.pos), "--lane": p.lane }} title={`${p.name}: ${fmt(p.guess)}`}>
+                  <span className="player-dot" />
+                  <span className="player-label">{p.name}</span>
+                </div>
+              ))}
+            </div>
+            <div className="scale-axis mono">
+              <span>{guessScale.minLabel}</span>
+              <span>{guessScale.maxLabel}</span>
+            </div>
+          </div>
+        )}
         <div className="res-list">
           {sorted.map((r) => (
             <div className={`res-row ${OUTCOME[r.outcome].cls}`} key={r.id}>
