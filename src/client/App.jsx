@@ -162,6 +162,12 @@ export default function App() {
     connect({ role: "player", code, name: joinName.trim() });
   }
   function quit() { leave(); setRole(null); setMode("landing"); }
+  function backToJoin() {
+    if (role === "host" && room?.phase === "lobby" && Object.keys(room.teams).length === 0) {
+      send({ type: "abandon" });
+    }
+    quit();
+  }
   function updateBalanceDraft(teamId, value) {
     setBalanceDrafts((drafts) => ({ ...drafts, [teamId]: value }));
     setBalanceErr("");
@@ -192,14 +198,14 @@ export default function App() {
           <h1 className="wordmark">Estimathon</h1>
           <p className="tagline">Guess the closest, dodge the wildest miss, and bet your bankroll on how sure you are.</p>
           <div className="cta">
-            <button className="btn btn-primary" onClick={hostNew}>Host a game</button>
             <div className="join-row">
               <input className="input mono code-in" placeholder="CODE" maxLength={4}
                 value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} />
               <input className="input" placeholder="Team name" value={joinName}
                 onChange={(e) => setJoinName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && join()} />
-              <button className="btn btn-ghost" onClick={join}>Join</button>
+              <button className="btn btn-primary" onClick={join}>Join</button>
             </div>
+            <button className="btn btn-ghost sm host-secondary" onClick={hostNew}>Host a game</button>
             {error && <div className="err">{error}</div>}
           </div>
           <div className="rules-mini">
@@ -225,7 +231,11 @@ export default function App() {
         <div className="panel center wait">
           <div className="orbit" />
           <div className="wait-text">{error ? error : "Connecting…"}</div>
-          {error && <button className="btn btn-ghost" onClick={quit}>Back</button>}
+          {(error || role === "host") && (
+            <button className="btn btn-ghost" onClick={backToJoin}>
+              {role === "host" ? "Back to join" : "Back"}
+            </button>
+          )}
         </div>
       </Shell>
     );
@@ -328,6 +338,7 @@ export default function App() {
   if (role === "host") {
     const liveCurrent = bank.find((b) => b.id === room.questionId);
     const presetCurrent = room.questionId && liveCurrent && !liveCurrent.live;
+    const teamIds = Object.keys(room.teams);
     return (
       <Shell wide>
         <ConnBanner />
@@ -347,12 +358,17 @@ export default function App() {
                   <div className="bigcode mono">{room.code}</div>
                 </div>
                 <div className="lobby-teams">
-                  {Object.keys(room.teams).map((id) => (<span className="team-chip in" key={id}>{room.teams[id].name}</span>))}
-                  {!Object.keys(room.teams).length && <span className="muted small">Waiting for teams to join…</span>}
+                  {teamIds.map((id) => (<span className="team-chip in" key={id}>{room.teams[id].name}</span>))}
+                  {!teamIds.length && <span className="muted small">Waiting for teams to join…</span>}
                 </div>
-                <button className="btn btn-primary wide" disabled={!Object.keys(room.teams).length} onClick={() => send({ type: "start" })}>
-                  Start game ({Object.keys(room.teams).length} {Object.keys(room.teams).length === 1 ? "team" : "teams"})
+                <button className="btn btn-primary wide" disabled={!teamIds.length} onClick={() => send({ type: "start" })}>
+                  Start game ({teamIds.length} {teamIds.length === 1 ? "team" : "teams"})
                 </button>
+                {!teamIds.length && (
+                  <button className="btn btn-ghost sm lobby-back" onClick={backToJoin}>
+                    Back to join a game
+                  </button>
+                )}
               </div>
             )}
 

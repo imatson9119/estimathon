@@ -121,6 +121,18 @@ export class Room extends DurableObject {
           for (const id of Object.keys(s.teams)) if (s.balances[id] == null) s.balances[id] = 1;
           s.phase = "setup";
           break;
+        case "abandon":
+          if (s.phase !== "lobby" || Object.keys(s.teams).length) return;
+          this.state = null;
+          await this.ctx.storage.delete("state");
+          for (const socket of this.ctx.getWebSockets()) {
+            try {
+              socket.close(1000, "abandoned");
+            } catch {
+              /* socket closing */
+            }
+          }
+          return;
         case "setRound":
           if ([1, 2, 3].includes(intent.round)) s.round = intent.round;
           break;
