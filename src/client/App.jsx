@@ -154,6 +154,38 @@ function ModeBadge({ mode }) {
     </span>
   );
 }
+function SubmissionProgress({ room, compact = false }) {
+  const ids = Object.keys(room.teams);
+  const total = ids.length;
+  if (!total) return null;
+  const answered = room.submittedIds.length;
+  const remaining = total - answered;
+  return (
+    <div className="sub-progress">
+      <div className="sub-progress-head">
+        <span className="mono"><b>{answered}</b>/{total} locked in</span>
+        <span className={`sub-progress-status small ${remaining ? "" : "done"}`}>
+          {remaining ? `waiting on ${remaining}` : "everyone's in"}
+        </span>
+      </div>
+      <div className="sub-bar" role="progressbar" aria-valuenow={answered} aria-valuemin={0} aria-valuemax={total}>
+        <div className="sub-bar-fill" style={{ width: pct(total ? (answered / total) * 100 : 0) }} />
+      </div>
+      {!compact && (
+        <div className="lobby-teams">
+          {ids.map((id) => {
+            const inHand = room.submittedIds.includes(id);
+            return (
+              <span className={`team-chip ${inHand ? "in" : ""}`} key={id}>
+                {room.teams[id].name}{inHand ? " ✓" : ""}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 function Shell({ children, wide }) {
   return (
     <div className="est-root">
@@ -635,6 +667,7 @@ export default function App() {
             </div>
             <button className="btn btn-ghost" onClick={startEdit}>Change my answer</button>
             <div className="muted small">You can edit until the host locks submissions.</div>
+            <SubmissionProgress room={room} />
           </div>
         ) : (
           <div className="panel">
@@ -674,12 +707,16 @@ export default function App() {
             </button>
             {submitted && <button className="link-btn" onClick={() => setEditing(false)}>Cancel — keep my locked answer</button>}
             {localErr && <div className="err">{localErr}</div>}
+            <SubmissionProgress room={room} compact />
           </div>
         )
       )}
 
       {room.phase === "locked" && (
-        <div className="panel center wait"><div className="wait-text">Locked. Waiting for the reveal…</div></div>
+        <div className="panel center wait">
+          <div className="wait-text">Locked. Waiting for the reveal…</div>
+          <SubmissionProgress room={room} />
+        </div>
       )}
 
       {room.phase === "revealed" && room.lastResult && (
