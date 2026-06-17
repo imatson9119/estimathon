@@ -9,6 +9,12 @@ const loadSession = () => { try { return JSON.parse(localStorage.getItem(SESSION
 const clearSession = () => { try { localStorage.removeItem(SESSION_KEY); } catch {} };
 const magIndex = (word) => Math.max(0, MAGS.findIndex((m) => m.word === word));
 
+const TIMER_PRESETS = [
+  { secs: 30, label: "0:30" },
+  { secs: 60, label: "1:00" },
+  { secs: 120, label: "2:00" },
+];
+
 const pct = (n) => `${Math.max(0, Math.min(100, n)).toFixed(2)}%`;
 
 function buildGuessScale(lr) {
@@ -186,6 +192,42 @@ function SubmissionProgress({ room, compact = false }) {
     </div>
   );
 }
+function Countdown({ deadline, compact = false }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!deadline) return undefined;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [deadline]);
+  if (!deadline) return null;
+  const secs = Math.max(0, Math.ceil((deadline - now) / 1000));
+  const mm = Math.floor(secs / 60);
+  const ss = secs % 60;
+  const done = secs === 0;
+  return (
+    <div className={`countdown ${compact ? "compact" : ""} ${done ? "done" : secs <= 10 ? "urgent" : ""}`}
+      role="timer" aria-label={done ? "Time's up" : `${secs} seconds left`}>
+      <span className="countdown-time mono">{done ? "Time's up" : `${mm}:${String(ss).padStart(2, "0")}`}</span>
+    </div>
+  );
+}
+function ConfirmModal({ confirm, onCancel }) {
+  if (!confirm) return null;
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-text">{confirm.text}</div>
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={onCancel}>{confirm.cancelLabel || "Cancel"}</button>
+          <button className="btn btn-primary" onClick={() => { confirm.onYes(); onCancel(); }}>
+            {confirm.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function Shell({ children, wide }) {
   return (
     <div className="est-root">
@@ -211,6 +253,7 @@ export default function App() {
   const [answerYN, setAnswerYN] = useState("");
   const [balanceDrafts, setBalanceDrafts] = useState({});
   const [balanceErr, setBalanceErr] = useState("");
+  const [confirm, setConfirm] = useState(null); // { text, confirmLabel, onYes } | null
 
   // player input
   const [yn, setYn] = useState("");
@@ -229,11 +272,19 @@ export default function App() {
     connect(s);
   }, [connect]);
 
-  const qk = room ? `${room.round}-${room.questionIndex}` : "";
   // reset player inputs on new question
   useEffect(() => {
     setYn(""); setGuessBase(""); setGuessMag(0); setWager(""); setEditing(false);
   }, [room?.round, room?.questionIndex]);
+
+  // celebratory haptic on your own reveal (mobile); win = upbeat, loss = single buzz
+  useEffect(() => {
+    if (role !== "player" || room?.phase !== "revealed" || !me?.teamId) return;
+    const r = room.lastResult?.results.find((x) => x.id === me.teamId);
+    const cls = r ? OUTCOME[r.outcome]?.cls : null;
+    const pattern = cls === "win" ? [25, 40, 25] : cls === "loss" ? [90] : null;
+    if (pattern && typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(pattern);
+  }, [room?.phase, room?.questionIndex, role, me?.teamId]);
 
   function hostNew() {
     setRole("host");
@@ -355,6 +406,32 @@ export default function App() {
         {!rows.length && <div className="muted small">No teams yet.</div>}
         {editable && balanceErr && <div className="err">{balanceErr}</div>}
       </div>
+    );
+  };
+
+  // Collapsible standings so players can check the board between questions.
+  const StandingsPeek = ({ open = false }) => {
+    const rows = Object.keys(room.teams)
+      .map((id) => ({ id, name: room.teams[id].name, balance: room.balances[id] ?? 1 }))
+      .sort((a, b) => b.balance - a.balance);
+    if (!rows.length) return null;
+    const myRank = me ? rows.findIndex((t) => t.id === me.teamId) + 1 : 0;
+    return (
+      <details className="panel standings-peek" open={open}>
+        <summary>
+          <span className="lb-title">Standings</span>
+          {myRank > 0 && <span className="peek-rank mono">you're #{myRank} of {rows.length}</span>}
+        </summary>
+        <div className="peek-list">
+          {rows.map((t, i) => (
+            <div className={`lb-row ${i === 0 ? "lead" : ""} ${me && t.id === me.teamId ? "you" : ""}`} key={t.id}>
+              <span className="lb-rank">{i + 1}</span>
+              <span className="lb-name">{t.name}{me && t.id === me.teamId ? " (you)" : ""}</span>
+              <span className="lb-bal mono">${fmt(t.balance)}</span>
+            </div>
+          ))}
+        </div>
+      </details>
     );
   };
 
@@ -523,7 +600,10 @@ export default function App() {
                       <button key={r} className={room.round === r ? "on" : ""} onClick={() => { send({ type: "setRound", round: r }); setSelectedId(""); setDraft(""); }}>R{r}</button>
                     ))}
                   </div>
-                  <button className="btn btn-ghost sm" onClick={() => send({ type: "end" })}>End game</button>
+                  <button className="btn btn-ghost sm" onClick={() => setConfirm({
+                    text: "End the game for everyone? This jumps straight to the final standings and can't be undone.",
+                    confirmLabel: "End game", onYes: () => send({ type: "end" }),
+                  })}>End game</button>
                 </div>
               </div>
             )}
@@ -535,17 +615,19 @@ export default function App() {
                   <div className="badge-row"><RoundBadge round={room.round} /><ModeBadge mode={room.currentMode} /></div>
                 </div>
                 <div className="qtext">{room.questionText}</div>
-                <div className="lockcount">
-                  <span className="mono big">{room.submittedIds.length}</span>
-                  <span className="muted"> / {Object.keys(room.teams).length} locked in</span>
-                </div>
-                <div className="lobby-teams">
-                  {Object.keys(room.teams).map((id) => (
-                    <span className={`team-chip ${room.submittedIds.includes(id) ? "in" : ""}`} key={id}>
-                      {room.teams[id].name}{room.submittedIds.includes(id) ? " ✓" : ""}
-                    </span>
+                <Countdown deadline={room.deadline} />
+                <div className="timer-controls">
+                  <span className="muted small">Timer</span>
+                  {TIMER_PRESETS.map((t) => (
+                    <button key={t.secs} className="timer-btn" onClick={() => send({ type: "timer", seconds: t.secs })}>
+                      {t.label}
+                    </button>
                   ))}
+                  {room.deadline && (
+                    <button className="timer-btn off" onClick={() => send({ type: "stopTimer" })}>Stop</button>
+                  )}
                 </div>
+                <SubmissionProgress room={room} />
                 <button className="btn btn-primary wide" onClick={() => send({ type: "lock" })}>Lock submissions</button>
               </div>
             )}
@@ -598,7 +680,10 @@ export default function App() {
                       <button key={r} className={room.round === r ? "on" : ""} onClick={() => send({ type: "setRound", round: r })}>R{r}</button>
                     ))}
                   </div>
-                  <button className="btn btn-ghost sm" onClick={() => send({ type: "end" })}>End game</button>
+                  <button className="btn btn-ghost sm" onClick={() => setConfirm({
+                    text: "End the game for everyone? This jumps straight to the final standings and can't be undone.",
+                    confirmLabel: "End game", onYes: () => send({ type: "end" }),
+                  })}>End game</button>
                 </div>
               </>
             )}
@@ -607,6 +692,7 @@ export default function App() {
           </div>
           <div className="col-side"><Leaderboard editable /></div>
         </div>
+        <ConfirmModal confirm={confirm} onCancel={() => setConfirm(null)} />
       </Shell>
     );
   }
@@ -649,17 +735,22 @@ export default function App() {
       </div>
 
       {(room.phase === "lobby" || room.phase === "setup") && (
-        <div className="panel center wait">
-          <div className="orbit" />
-          <div className="wait-text">{room.phase === "lobby" ? "You're in. Waiting for the host to start…" : "Get ready — next question incoming…"}</div>
-        </div>
+        <>
+          <div className="panel center wait">
+            <div className="orbit" />
+            <div className="wait-text">{room.phase === "lobby" ? "You're in. Waiting for the host to start…" : "Get ready — next question incoming…"}</div>
+          </div>
+          {room.phase === "setup" && <StandingsPeek open />}
+        </>
       )}
 
       {room.phase === "open" && (
         submitted && !editing ? (
+          <>
           <div className="panel center wait">
             <div className="locked-check">✓</div>
             <div className="wait-text">Locked in</div>
+            <Countdown deadline={room.deadline} />
             <div className="muted mono">
               {room.round === 1
                 ? `answered ${me.mySubmission.yn === "yes" ? "Yes" : "No"}`
@@ -669,6 +760,8 @@ export default function App() {
             <div className="muted small">You can edit until the host locks submissions.</div>
             <SubmissionProgress room={room} />
           </div>
+          <StandingsPeek />
+          </>
         ) : (
           <div className="panel">
             <div className="panel-head">
@@ -676,6 +769,7 @@ export default function App() {
               {submitted && <span className="tag mid">editing</span>}
             </div>
             <div className="qtext">{room.questionText}</div>
+            <Countdown deadline={room.deadline} compact />
             {room.round === 1 ? (
               <div className="yn-row big">
                 <button className={`yn-btn ${yn === "yes" ? "on yes" : ""}`} onClick={() => setYn("yes")}>Yes</button>
@@ -708,15 +802,19 @@ export default function App() {
             {submitted && <button className="link-btn" onClick={() => setEditing(false)}>Cancel — keep my locked answer</button>}
             {localErr && <div className="err">{localErr}</div>}
             <SubmissionProgress room={room} compact />
+            {room.round !== 1 && <StandingsPeek />}
           </div>
         )
       )}
 
       {room.phase === "locked" && (
-        <div className="panel center wait">
-          <div className="wait-text">Locked. Waiting for the reveal…</div>
-          <SubmissionProgress room={room} />
-        </div>
+        <>
+          <div className="panel center wait">
+            <div className="wait-text">Locked. Waiting for the reveal…</div>
+            <SubmissionProgress room={room} />
+          </div>
+          <StandingsPeek />
+        </>
       )}
 
       {room.phase === "revealed" && room.lastResult && (

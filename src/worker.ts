@@ -29,6 +29,7 @@ function freshState(code: string): any {
     questionIndex: 0,
     questionText: "",
     questionId: null,
+    deadline: null, // epoch ms when the open-question timer auto-locks, or null
     hostToken: null,
     teams: {}, // id -> { name }
     balances: {}, // id -> number
@@ -159,11 +160,24 @@ export class Room extends DurableObject {
           s.questionId = intent.questionId || null;
           s.subs = {};
           s.lastResult = null;
+          await this.clearTimer();
           if (s.questionId && !s.usedIds.includes(s.questionId)) s.usedIds.push(s.questionId);
           break;
         }
+        case "timer": {
+          if (s.phase !== "open") return;
+          const seconds = Math.floor(Number(intent.seconds));
+          if (!Number.isFinite(seconds) || seconds <= 0) return;
+          s.deadline = Date.now() + Math.min(3600, seconds) * 1000;
+          await this.ctx.storage.setAlarm(s.deadline);
+          break;
+        }
+        case "stopTimer":
+          await this.clearTimer();
+          break;
         case "lock":
           if (s.phase === "open") s.phase = "locked";
+          await this.clearTimer();
           break;
         case "reveal": {
           const q = s.questionId ? findQ(s.round, s.questionId) : null;
@@ -199,6 +213,21 @@ export class Room extends DurableObject {
     this.broadcast();
   }
 
+  // Fires when the open-question timer expires: auto-lock so no one keeps editing.
+  async alarm(): Promise<void> {
+    const s = this.state;
+    if (!s || s.phase !== "open" || !s.deadline) return;
+    s.phase = "locked";
+    s.deadline = null;
+    await this.persist();
+    this.broadcast();
+  }
+
+  async clearTimer(): Promise<void> {
+    if (this.state) this.state.deadline = null;
+    await this.ctx.storage.deleteAlarm();
+  }
+
   // ---- helpers ----
   reject(message: string): Response {
     const pair = new WebSocketPair();
@@ -224,6 +253,7 @@ export class Room extends DurableObject {
       questionIndex: s.questionIndex,
       questionText: s.questionText,
       questionId: s.questionId,
+      deadline: s.deadline ?? null,
       teams: s.teams,
       balances: s.balances,
       usedIds: s.usedIds,
