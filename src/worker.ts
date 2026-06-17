@@ -29,12 +29,14 @@ function freshState(code: string): any {
     questionIndex: 0,
     questionText: "",
     questionId: null,
+    deadline: null, // epoch ms when the open-question timer auto-locks, or null
     hostToken: null,
     teams: {}, // id -> { name }
     balances: {}, // id -> number
     usedIds: [],
     subs: {}, // id -> submission (current question only)
     lastResult: null,
+    history: [], // compact per-question recap, appended on reveal
   };
 }
 
@@ -159,11 +161,24 @@ export class Room extends DurableObject {
           s.questionId = intent.questionId || null;
           s.subs = {};
           s.lastResult = null;
+          await this.clearTimer();
           if (s.questionId && !s.usedIds.includes(s.questionId)) s.usedIds.push(s.questionId);
           break;
         }
+        case "timer": {
+          if (s.phase !== "open") return;
+          const seconds = Math.floor(Number(intent.seconds));
+          if (!Number.isFinite(seconds) || seconds <= 0) return;
+          s.deadline = Date.now() + Math.min(3600, seconds) * 1000;
+          await this.ctx.storage.setAlarm(s.deadline);
+          break;
+        }
+        case "stopTimer":
+          await this.clearTimer();
+          break;
         case "lock":
           if (s.phase === "open") s.phase = "locked";
+          await this.clearTimer();
           break;
         case "reveal": {
           const q = s.questionId ? findQ(s.round, s.questionId) : null;
@@ -179,6 +194,42 @@ export class Room extends DurableObject {
           s.balances = balances;
           s.lastResult = { answer: ans, note: q ? q.note || null : null, questionText: s.questionText, round: s.round, results };
           s.phase = "revealed";
+          if (!Array.isArray(s.history)) s.history = [];
+          s.history.push({
+            round: s.round,
+            questionText: s.questionText,
+            answer: ans,
+            note: q ? q.note || null : null,
+            winners: results.filter((r: any) => r.outcome === "closest" || r.outcome === "correct").map((r: any) => r.name),
+          });
+          break;
+        }
+        case "undoReveal": {
+          // Roll balances back to their pre-reveal values and return to "locked"
+          // so the host can re-enter a corrected answer and re-score.
+          if (s.phase !== "revealed" || !s.lastResult) return;
+          for (const r of s.lastResult.results || []) {
+            if (s.balances[r.id] != null) s.balances[r.id] = (r.balance || 0) - (r.delta || 0);
+          }
+          if (Array.isArray(s.history)) s.history.pop();
+          s.lastResult = null;
+          s.phase = "locked";
+          break;
+        }
+        case "renameTeam": {
+          const teamId = String(intent.teamId || "");
+          const name = (intent.name || "").trim().slice(0, 40);
+          if (!s.teams[teamId] || !name) return;
+          s.teams[teamId].name = name;
+          break;
+        }
+        case "removeTeam": {
+          const teamId = String(intent.teamId || "");
+          if (!s.teams[teamId]) return;
+          delete s.teams[teamId];
+          delete s.balances[teamId];
+          delete s.subs[teamId];
+          this.evictTeam(teamId);
           break;
         }
         case "next":
@@ -187,6 +238,9 @@ export class Room extends DurableObject {
           break;
         case "end":
           s.phase = "ended";
+          await this.clearTimer();
+          // Auto-clean the room a while after it ends so storage doesn't linger.
+          await this.ctx.storage.setAlarm(Date.now() + 6 * 3600 * 1000);
           break;
         default:
           return;
@@ -197,6 +251,45 @@ export class Room extends DurableObject {
 
     await this.persist();
     this.broadcast();
+  }
+
+  // The DO alarm does double duty: it auto-locks an expired question timer,
+  // and it cleans up the room some hours after the game ends.
+  async alarm(): Promise<void> {
+    const s = this.state;
+    if (!s) return;
+    if (s.phase === "open" && s.deadline) {
+      s.phase = "locked";
+      s.deadline = null;
+      await this.persist();
+      this.broadcast();
+      return;
+    }
+    if (s.phase === "ended") {
+      this.state = null;
+      await this.ctx.storage.deleteAll();
+      for (const socket of this.ctx.getWebSockets()) {
+        try { socket.close(1000, "room closed"); } catch { /* socket closing */ }
+      }
+    }
+  }
+
+  async clearTimer(): Promise<void> {
+    if (this.state) this.state.deadline = null;
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  // Close out a removed team's sockets with a message so their client stops.
+  evictTeam(teamId: string): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      const sess = ws.deserializeAttachment() as any;
+      if (sess && sess.role === "player" && sess.teamId === teamId) {
+        try {
+          ws.send(JSON.stringify({ type: "error", message: "The host removed your team from the game." }));
+          ws.close(4001, "removed");
+        } catch { /* socket closing */ }
+      }
+    }
   }
 
   // ---- helpers ----
@@ -224,12 +317,14 @@ export class Room extends DurableObject {
       questionIndex: s.questionIndex,
       questionText: s.questionText,
       questionId: s.questionId,
+      deadline: s.deadline ?? null,
       teams: s.teams,
       balances: s.balances,
       usedIds: s.usedIds,
       submittedIds: Object.keys(s.subs || {}),
       currentMode: scaleMode(s.round, q ? q.answer : null),
       lastResult: s.lastResult,
+      history: s.history || [],
     };
   }
 

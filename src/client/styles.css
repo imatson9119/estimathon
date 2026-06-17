@@ -196,8 +196,10 @@ textarea.input{ resize:vertical; line-height:1.4; }
 .locked-check{ width:60px; height:60px; border-radius:50%; background:rgba(95,230,207,0.16); border:1px solid rgba(95,230,207,0.5); color:var(--cyan); font-size:30px; display:flex; align-items:center; justify-content:center; }
 
 .my-result{ align-items:center; text-align:center; gap:10px; }
-.my-result.win{ border-color:rgba(95,230,207,0.45); }
-.my-result.loss{ border-color:rgba(255,111,141,0.45); }
+.my-result.win{ border-color:rgba(95,230,207,0.45); animation:pop-win .55s cubic-bezier(.2,.9,.3,1.4) both; }
+.my-result.loss{ border-color:rgba(255,111,141,0.45); animation:shake-loss .5s ease both; }
+@keyframes pop-win{ 0%{ transform:scale(.92); box-shadow:0 0 0 rgba(95,230,207,0); } 55%{ transform:scale(1.02); box-shadow:0 0 38px rgba(95,230,207,0.38); } 100%{ transform:scale(1); box-shadow:0 18px 50px rgba(0,0,0,0.35); } }
+@keyframes shake-loss{ 0%,100%{ transform:translateX(0); } 20%{ transform:translateX(-7px); } 40%{ transform:translateX(6px); } 60%{ transform:translateX(-4px); } 80%{ transform:translateX(3px); } }
 .my-answer{ color:var(--muted); font-size:13.5px; }
 .my-delta{ font-size:24px; display:flex; align-items:center; gap:10px; }
 .note-panel{ font-size:14px; color:var(--muted); line-height:1.45; }
@@ -229,3 +231,71 @@ textarea.input{ resize:vertical; line-height:1.4; }
 .player-marker.edge-right{ transform:translateX(-100%); align-items:flex-end; }
 .scale-axis{ display:flex; justify-content:space-between; gap:12px; color:var(--muted); font-size:11.5px; }
 .guess-scale.log .scale-line{ background:linear-gradient(90deg,rgba(154,140,255,0.20),rgba(154,140,255,0.72),rgba(255,206,107,0.62)); }
+
+/* countdown timer */
+.countdown{ align-self:center; display:inline-flex; align-items:center; justify-content:center; padding:8px 18px; border-radius:14px; background:rgba(255,255,255,0.05); border:1px solid var(--line); }
+.countdown.compact{ padding:5px 13px; align-self:flex-start; }
+.countdown-time{ font-size:30px; font-weight:700; color:var(--ink); line-height:1; font-variant-numeric:tabular-nums; }
+.countdown.compact .countdown-time{ font-size:18px; }
+.countdown.urgent{ background:rgba(255,111,141,0.12); border-color:rgba(255,111,141,0.4); animation:pulse-urgent 1s ease-in-out infinite; }
+.countdown.urgent .countdown-time{ color:var(--rose); }
+.countdown.done{ background:rgba(255,111,141,0.16); border-color:rgba(255,111,141,0.5); }
+.countdown.done .countdown-time{ color:var(--rose); font-size:18px; }
+@keyframes pulse-urgent{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.05); } }
+
+/* host timer controls */
+.timer-controls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.timer-controls .small{ margin-right:2px; }
+.timer-btn{ font-family:'Space Mono',monospace; font-size:13px; background:rgba(255,255,255,0.05); border:1px solid var(--line); color:var(--ink); padding:8px 14px; border-radius:11px; cursor:pointer; transition:.14s; }
+.timer-btn:hover{ background:rgba(255,206,107,0.12); border-color:rgba(255,206,107,0.4); }
+.timer-btn.off{ color:var(--rose); border-color:rgba(255,111,141,0.35); }
+.timer-btn.off:hover{ background:rgba(255,111,141,0.12); }
+
+/* confirm modal */
+.modal-backdrop{ position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(5,7,18,0.66); backdrop-filter:blur(4px); animation:fade-in .15s ease; }
+.modal{ width:100%; max-width:380px; background:var(--bg2); border:1px solid var(--line); border-radius:18px; padding:24px; display:flex; flex-direction:column; gap:18px; box-shadow:0 24px 70px rgba(0,0,0,0.5); }
+.modal-text{ font-size:16px; line-height:1.45; }
+.modal-actions{ display:flex; gap:10px; justify-content:flex-end; }
+@keyframes fade-in{ from{ opacity:0; } to{ opacity:1; } }
+
+/* collapsible standings peek (players) */
+.standings-peek{ display:block; padding:0; overflow:hidden; }
+.standings-peek summary{ list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 18px; }
+.standings-peek summary::-webkit-details-marker{ display:none; }
+.standings-peek summary::after{ content:"⌄"; color:var(--muted); font-size:16px; transition:transform .2s; }
+.standings-peek[open] summary::after{ transform:rotate(180deg); }
+.standings-peek summary:hover .lb-title{ color:var(--ink); }
+.peek-rank{ font-size:12.5px; color:var(--gold); }
+.peek-list{ display:flex; flex-direction:column; gap:8px; padding:0 14px 16px; }
+
+/* join sharing (host lobby) */
+.join-share{ display:flex; align-items:center; gap:16px; justify-content:center; flex-wrap:wrap; }
+.join-qr{ width:160px; height:160px; border-radius:14px; border:1px solid var(--line); background:#fff; padding:8px; image-rendering:pixelated; }
+.join-share-side{ display:flex; flex-direction:column; gap:10px; align-items:flex-start; max-width:200px; }
+
+/* host team management */
+.team-admin{ grid-column:1 / 4; display:flex; flex-direction:column; gap:7px; }
+.admin-line{ display:flex; align-items:center; gap:7px; }
+.admin-dollar{ color:var(--muted); font-size:13px; }
+.team-admin .input{ padding:8px 9px; border-radius:10px; font-size:13px; min-width:0; flex:1; }
+.team-admin .btn{ padding:8px 11px; border-radius:10px; white-space:nowrap; }
+.btn.danger{ color:var(--rose); border-color:rgba(255,111,141,0.3); }
+.btn.danger:hover{ background:rgba(255,111,141,0.12); }
+
+/* end-game recap */
+.recap{ width:100%; text-align:left; border:1px solid var(--line); border-radius:14px; background:rgba(6,9,24,0.34); overflow:hidden; }
+.recap summary{ list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; }
+.recap summary::-webkit-details-marker{ display:none; }
+.recap summary::after{ content:"⌄"; color:var(--muted); transition:transform .2s; }
+.recap[open] summary::after{ transform:rotate(180deg); }
+.recap-list{ display:flex; flex-direction:column; gap:10px; padding:0 16px 16px; max-height:340px; overflow:auto; }
+.recap-row{ display:flex; flex-direction:column; gap:5px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.recap-row:last-child{ border-bottom:none; padding-bottom:0; }
+.recap-q{ display:flex; align-items:flex-start; gap:8px; }
+.recap-qtext{ font-size:14px; line-height:1.3; }
+.recap-meta{ font-size:12.5px; color:var(--ink); padding-left:2px; }
+.recap-win{ color:var(--cyan); }
+
+@media (prefers-reduced-motion: reduce){
+  .my-result.win,.my-result.loss,.countdown.urgent,.stars,.orbit,.sub-bar-fill{ animation:none; transition:none; }
+}
