@@ -1,7 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import qrcode from "qrcode-generator";
 import {
   MAGS, fmt, fmtBig, scaleMode, MODE_BADGE, ROUND_META, OUTCOME, genCode,
 } from "../shared.js";
+
+const joinUrl = (code) => `${location.origin}/?code=${encodeURIComponent(code)}`;
+function qrDataUrl(text) {
+  try {
+    const qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    return qr.createDataURL(6, 16);
+  } catch {
+    return null;
+  }
+}
 
 const SESSION_KEY = "estimathon:session";
 const saveSession = (s) => { try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch {} };
@@ -97,6 +110,17 @@ function useRoom() {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === "error") {
+        // Let the caller transparently recover (e.g. host hit a room-code clash).
+        const p = paramsRef.current;
+        if (p && typeof p.onConflict === "function") {
+          const next = p.onConflict(msg.message || "");
+          if (next) {
+            try { ws.close(); } catch {}
+            paramsRef.current = next;
+            openSocket();
+            return;
+          }
+        }
         stopRef.current = true;
         clearSession();
         setError(msg.message || "Connection rejected.");
@@ -170,7 +194,7 @@ function SubmissionProgress({ room, compact = false }) {
     <div className="sub-progress">
       <div className="sub-progress-head">
         <span className="mono"><b>{answered}</b>/{total} locked in</span>
-        <span className={`sub-progress-status small ${remaining ? "" : "done"}`}>
+        <span className={`sub-progress-status small ${remaining ? "" : "done"}`} aria-live="polite">
           {remaining ? `waiting on ${remaining}` : "everyone's in"}
         </span>
       </div>
@@ -242,9 +266,13 @@ export default function App() {
   const [mode, setMode] = useState("landing"); // landing | game
   const [role, setRole] = useState(null);
 
-  // landing inputs
-  const [joinCode, setJoinCode] = useState("");
+  // landing inputs (prefill code from a shared ?code= link)
+  const [joinCode, setJoinCode] = useState(() => {
+    try { return (new URLSearchParams(location.search).get("code") || "").toUpperCase().slice(0, 4); }
+    catch { return ""; }
+  });
   const [joinName, setJoinName] = useState("");
+  const [copied, setCopied] = useState(false);
 
   // host compose / reveal
   const [selectedId, setSelectedId] = useState("");
@@ -253,6 +281,7 @@ export default function App() {
   const [answerYN, setAnswerYN] = useState("");
   const [balanceDrafts, setBalanceDrafts] = useState({});
   const [balanceErr, setBalanceErr] = useState("");
+  const [nameDrafts, setNameDrafts] = useState({});
   const [confirm, setConfirm] = useState(null); // { text, confirmLabel, onYes } | null
 
   // player input
@@ -287,9 +316,16 @@ export default function App() {
   }, [room?.phase, room?.questionIndex, role, me?.teamId]);
 
   function hostNew() {
+    let attempts = 0;
+    // If the random code collides with a live room, silently try a new one.
+    const mk = () => ({
+      role: "host",
+      code: genCode(),
+      onConflict: (m) => (/already has a host/i.test(m) && attempts++ < 8 ? mk() : null),
+    });
     setRole("host");
     setMode("game");
-    connect({ role: "host", code: genCode() });
+    connect(mk());
   }
   function join() {
     const code = joinCode.trim().toUpperCase();
@@ -326,6 +362,16 @@ export default function App() {
     });
     setBalanceErr("");
   }
+  function saveName(teamId) {
+    const raw = String(nameDrafts[teamId] ?? "").trim();
+    if (!raw) return;
+    send({ type: "renameTeam", teamId, name: raw });
+    setNameDrafts((drafts) => {
+      const copy = { ...drafts };
+      delete copy[teamId];
+      return copy;
+    });
+  }
 
   // ----- LANDING -----
   if (mode === "landing") {
@@ -337,9 +383,10 @@ export default function App() {
           <p className="tagline">Guess the closest, dodge the wildest miss, and bet your bankroll on how sure you are.</p>
           <div className="cta">
             <div className="join-row">
-              <input className="input mono code-in" placeholder="CODE" maxLength={4}
+              <input className="input mono code-in" placeholder="CODE" maxLength={4} aria-label="Room code"
+                autoCapitalize="characters" autoComplete="off"
                 value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} />
-              <input className="input" placeholder="Team name" value={joinName}
+              <input className="input" placeholder="Team name" value={joinName} aria-label="Team name"
                 onChange={(e) => setJoinName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && join()} />
               <button className="btn btn-primary" onClick={join}>Join</button>
             </div>
@@ -360,7 +407,7 @@ export default function App() {
 
   const connecting = !room || status !== "open";
   const ConnBanner = () =>
-    status !== "open" ? <div className="conn">{status === "connecting" ? "Connecting…" : "Reconnecting…"}</div> : null;
+    status !== "open" ? <div className="conn" role="status" aria-live="polite">{status === "connecting" ? "Connecting…" : "Reconnecting…"}</div> : null;
 
   if (!room) {
     return (
@@ -392,13 +439,27 @@ export default function App() {
             <span className="lb-name">{t.name}</span>
             <span className="lb-bal mono">${fmt(t.balance)}</span>
             {editable && (
-              <div className="balance-edit">
-                <span className="mono">$</span>
-                <input className="input mono" inputMode="numeric" aria-label={`Balance for ${t.name}`}
-                  value={balanceDrafts[t.id] ?? String(t.balance)}
-                  onChange={(e) => updateBalanceDraft(t.id, e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveBalance(t.id, t.balance)} />
-                <button className="btn btn-ghost sm" onClick={() => saveBalance(t.id, t.balance)}>Set</button>
+              <div className="team-admin">
+                <div className="admin-line">
+                  <input className="input" aria-label={`Rename ${t.name}`} placeholder="Team name"
+                    value={nameDrafts[t.id] ?? t.name}
+                    onChange={(e) => setNameDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && saveName(t.id)} />
+                  <button className="btn btn-ghost sm" onClick={() => saveName(t.id)}>Rename</button>
+                </div>
+                <div className="admin-line">
+                  <span className="mono admin-dollar">$</span>
+                  <input className="input mono" inputMode="numeric" aria-label={`Balance for ${t.name}`}
+                    value={balanceDrafts[t.id] ?? String(t.balance)}
+                    onChange={(e) => updateBalanceDraft(t.id, e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && saveBalance(t.id, t.balance)} />
+                  <button className="btn btn-ghost sm" onClick={() => saveBalance(t.id, t.balance)}>Set</button>
+                  <button className="btn btn-ghost sm danger" aria-label={`Remove ${t.name}`}
+                    onClick={() => setConfirm({
+                      text: `Remove ${t.name} from the game? They'll be disconnected and their balance is gone.`,
+                      confirmLabel: "Remove team", onYes: () => send({ type: "removeTeam", teamId: t.id }),
+                    })}>Remove</button>
+                </div>
               </div>
             )}
           </div>
@@ -520,6 +581,28 @@ export default function App() {
             </div>
           ))}
         </div>
+        {Array.isArray(room.history) && room.history.length > 0 && (
+          <details className="recap">
+            <summary><span className="lb-title">Game recap</span><span className="muted small">{room.history.length} questions</span></summary>
+            <div className="recap-list">
+              {room.history.map((h, i) => (
+                <div className="recap-row" key={i}>
+                  <div className="recap-q">
+                    <span className={`round-badge ${ROUND_META[h.round].badge}`}>R{h.round}</span>
+                    <span className="recap-qtext">{h.questionText}</span>
+                  </div>
+                  <div className="recap-meta mono">
+                    <span className="muted">answer</span>{" "}
+                    {h.round === 1 ? (h.answer === "yes" ? "Yes" : "No") : fmt(h.answer)}
+                    {h.winners && h.winners.length > 0 && (
+                      <span className="recap-win"> · {h.round === 1 ? "✓" : "🎯"} {h.winners.join(", ")}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         <button className="btn btn-ghost" onClick={quit}>New game</button>
       </div>
     );
@@ -547,6 +630,20 @@ export default function App() {
                 <div className="join-big">
                   <span className="muted small">Room code — players join with this</span>
                   <div className="bigcode mono">{room.code}</div>
+                </div>
+                <div className="join-share">
+                  {qrDataUrl(joinUrl(room.code)) && (
+                    <img className="join-qr" src={qrDataUrl(joinUrl(room.code))} alt={`QR code to join room ${room.code}`} width="160" height="160" />
+                  )}
+                  <div className="join-share-side">
+                    <span className="muted small">Scan to join, or share the link:</span>
+                    <button className="btn btn-ghost sm" onClick={() => {
+                      const url = joinUrl(room.code);
+                      const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1600); };
+                      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done).catch(done);
+                      else done();
+                    }}>{copied ? "Link copied ✓" : "Copy invite link"}</button>
+                  </div>
                 </div>
                 <div className="lobby-teams">
                   {teamIds.map((id) => (<span className="team-chip in" key={id}>{room.teams[id].name}</span>))}
@@ -673,6 +770,9 @@ export default function App() {
               <>
                 <div className="qtext-sm">{room.lastResult.questionText}</div>
                 <Results lr={room.lastResult} />
+                <button className="link-btn" onClick={() => send({ type: "undoReveal" })}>
+                  ↩ Undo reveal — fix the answer &amp; re-score
+                </button>
                 <div className="row-between">
                   <button className="btn btn-primary" onClick={() => send({ type: "next" })}>Next question</button>
                   <div className="round-toggle">

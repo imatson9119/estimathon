@@ -268,6 +268,34 @@ textarea.input{ resize:vertical; line-height:1.4; }
 .peek-rank{ font-size:12.5px; color:var(--gold); }
 .peek-list{ display:flex; flex-direction:column; gap:8px; padding:0 14px 16px; }
 
+/* join sharing (host lobby) */
+.join-share{ display:flex; align-items:center; gap:16px; justify-content:center; flex-wrap:wrap; }
+.join-qr{ width:160px; height:160px; border-radius:14px; border:1px solid var(--line); background:#fff; padding:8px; image-rendering:pixelated; }
+.join-share-side{ display:flex; flex-direction:column; gap:10px; align-items:flex-start; max-width:200px; }
+
+/* host team management */
+.team-admin{ grid-column:1 / 4; display:flex; flex-direction:column; gap:7px; }
+.admin-line{ display:flex; align-items:center; gap:7px; }
+.admin-dollar{ color:var(--muted); font-size:13px; }
+.team-admin .input{ padding:8px 9px; border-radius:10px; font-size:13px; min-width:0; flex:1; }
+.team-admin .btn{ padding:8px 11px; border-radius:10px; white-space:nowrap; }
+.btn.danger{ color:var(--rose); border-color:rgba(255,111,141,0.3); }
+.btn.danger:hover{ background:rgba(255,111,141,0.12); }
+
+/* end-game recap */
+.recap{ width:100%; text-align:left; border:1px solid var(--line); border-radius:14px; background:rgba(6,9,24,0.34); overflow:hidden; }
+.recap summary{ list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; }
+.recap summary::-webkit-details-marker{ display:none; }
+.recap summary::after{ content:"⌄"; color:var(--muted); transition:transform .2s; }
+.recap[open] summary::after{ transform:rotate(180deg); }
+.recap-list{ display:flex; flex-direction:column; gap:10px; padding:0 16px 16px; max-height:340px; overflow:auto; }
+.recap-row{ display:flex; flex-direction:column; gap:5px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.recap-row:last-child{ border-bottom:none; padding-bottom:0; }
+.recap-q{ display:flex; align-items:flex-start; gap:8px; }
+.recap-qtext{ font-size:14px; line-height:1.3; }
+.recap-meta{ font-size:12.5px; color:var(--ink); padding-left:2px; }
+.recap-win{ color:var(--cyan); }
+
 @media (prefers-reduced-motion: reduce){
-  .my-result.win,.my-result.loss,.countdown.urgent{ animation:none; }
+  .my-result.win,.my-result.loss,.countdown.urgent,.stars,.orbit,.sub-bar-fill{ animation:none; transition:none; }
 }
