@@ -117,6 +117,16 @@ textarea.input{ resize:vertical; line-height:1.4; }
 .qtext-sm{ font-family:'Instrument Serif',serif; font-size:20px; color:var(--muted); padding:0 4px; }
 .lockcount{ display:flex; align-items:baseline; gap:4px; }
 
+.sub-progress{ width:100%; display:flex; flex-direction:column; gap:10px; padding-top:4px; }
+.sub-progress-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; font-size:14px; }
+.sub-progress-head .mono{ color:var(--ink); }
+.sub-progress-head .mono b{ color:var(--gold); font-size:17px; }
+.sub-progress-status{ color:var(--muted); }
+.sub-progress-status.done{ color:var(--cyan); }
+.sub-bar{ height:7px; border-radius:999px; background:rgba(255,255,255,0.07); border:1px solid var(--line); overflow:hidden; }
+.sub-bar-fill{ height:100%; border-radius:999px; background:linear-gradient(90deg,var(--gold),var(--cyan)); transition:width .35s ease; }
+.sub-progress .lobby-teams{ justify-content:center; }
+
 .row-between{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
 .round-toggle{ display:inline-flex; border:1px solid var(--line); border-radius:11px; overflow:hidden; }
 .round-toggle button{ font-family:'Space Mono',monospace; font-size:13px; background:transparent; color:var(--muted); border:none; padding:9px 15px; cursor:pointer; }
